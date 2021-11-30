@@ -1,17 +1,95 @@
 import torch
-import torch.nn as nn
+from torch import nn
+from operator import mul
 import torch.nn.functional as F
-import torch.utils.checkpoint as checkpoint
-import numpy as np
+from einops import rearrange, repeat
+from functools import reduce, lru_cache
 from timm.models.layers import DropPath, trunc_normal_
 
 from mmcv.runner import load_checkpoint
 from mmaction.utils import get_root_logger
 from ..builder import BACKBONES
 
-from functools import reduce, lru_cache
-from operator import mul
-from einops import rearrange
+
+def pair(t):
+    return t if isinstance(t, tuple) else (t, t)
+
+
+class PreNorm(nn.Module):
+    def __init__(self, dim, fn):
+        super().__init__()
+        self.norm = nn.LayerNorm(dim)
+        self.fn = fn
+    def forward(self, x, **kwargs):
+        return self.fn(self.norm(x), **kwargs)
+    pass
+
+
+class FeedForward(nn.Module):
+    def __init__(self, dim, hidden_dim, dropout = 0.):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(dim, hidden_dim),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden_dim, dim),
+            nn.Dropout(dropout)
+        )
+    def forward(self, x):
+        return self.net(x)
+    pass
+
+
+class Attention(nn.Module):
+    def __init__(self, dim, heads = 8, dim_head = 64, dropout = 0.):
+        super().__init__()
+        inner_dim = dim_head *  heads
+        project_out = not (heads == 1 and dim_head == dim)
+
+        self.heads = heads
+        self.scale = dim_head ** -0.5
+
+        self.attend = nn.Softmax(dim = -1)
+        self.to_qkv = nn.Linear(dim, inner_dim * 3, bias = False)
+
+        self.to_out = nn.Sequential(
+            nn.Linear(inner_dim, dim),
+            nn.Dropout(dropout)
+        ) if project_out else nn.Identity()
+
+    def forward(self, x):
+        qkv = self.to_qkv(x).chunk(3, dim = -1)
+        q, k, v = map(lambda t: rearrange(t, 'b n (h d) -> b h n d', h = self.heads), qkv)
+
+        dots = torch.matmul(q, k.transpose(-1, -2)) * self.scale
+
+        attn = self.attend(dots)
+
+        out = torch.matmul(attn, v)
+        out = rearrange(out, 'b h n d -> b n (h d)')
+        return self.to_out(out)
+    pass
+
+
+class Transformer(nn.Module):
+    def __init__(self, dim, depth, heads, dim_head, mlp_dim, dropout = 0.):
+        super().__init__()
+        self.layers = nn.ModuleList([])
+        for _ in range(depth):
+            self.layers.append(nn.ModuleList([
+                PreNorm(dim, Attention(dim, heads = heads, dim_head = dim_head, dropout = dropout)),
+                PreNorm(dim, FeedForward(dim, mlp_dim, dropout = dropout))
+            ]))
+    def forward(self, x):
+        for attn, ff in self.layers:
+            x = attn(x) + x
+            x = ff(x) + x
+        return x
+
+    pass
+
+
+######################################################################
 
 
 class Mlp(nn.Module):
@@ -126,8 +204,9 @@ class WindowAttention3D(nn.Module):
 
         trunc_normal_(self.relative_position_bias_table, std=.02)
         self.softmax = nn.Softmax(dim=-1)
+        pass
 
-    def forward(self, x):
+    def forward(self, x, mae_unmask=None):
         """ (num_windows*B, N, C)"""
         B_, N, C = x.shape
         qkv = self.qkv(x).reshape(B_, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
@@ -137,9 +216,21 @@ class WindowAttention3D(nn.Module):
         attn = q @ k.transpose(-2, -1)
 
         # 相对位置
-        relative_position_bias = self.relative_position_bias_table[self.relative_position_index[:N, :N].reshape(-1)].reshape(N, N, -1)  # Wd*Wh*Ww,Wd*Wh*Ww,nH
-        relative_position_bias = relative_position_bias.permute(2, 0, 1).contiguous()  # nH, Wd*Wh*Ww, Wd*Wh*Ww
-        attn = attn + relative_position_bias.unsqueeze(0) # B_, nH, N, N
+        if mae_unmask is None:
+            relative_position_bias = self.relative_position_bias_table[self.relative_position_index[:N, :N].reshape(-1)].reshape(N, N, -1)  # Wd*Wh*Ww,Wd*Wh*Ww,nH
+            relative_position_bias = relative_position_bias.permute(2, 0, 1).contiguous()  # nH, Wd*Wh*Ww, Wd*Wh*Ww
+            attn = attn + relative_position_bias.unsqueeze(0) # B_, nH, N, N
+        else:
+            one_bias_list = []
+            for mask in mae_unmask:
+                position_bias = self.relative_position_index[mask][:, mask]
+                one_bias = self.relative_position_bias_table[position_bias.reshape(-1)].reshape(N, N, -1)
+                one_bias_list.append(one_bias)
+                pass
+            relative_position_bias = torch.cat([one.unsqueeze(0) for one in one_bias_list])
+            relative_position_bias = relative_position_bias.permute(0, 3, 1, 2).contiguous()
+            attn = attn + relative_position_bias
+            pass
 
         attn = self.softmax(attn)
         attn = self.attn_drop(attn)
@@ -189,40 +280,50 @@ class SwinTransformerBlock3D(nn.Module):
         self.mlp = Mlp(in_features=dim, hidden_features=mlp_hidden_dim, act_layer=act_layer, drop=drop)
         pass
 
-    def forward_part1(self, x):
+    def forward(self, x, mae_unmask=None):
+        """ (B, D, H, W, C)"""
+        shortcut = x
+
+        device = x.device
         B, D, H, W, C = x.shape
         window_size = get_window_size((D, H, W), self.window_size)
 
-        x = self.norm1(x)
-        # pad feature maps to multiples of window size
-        pad_l = pad_t = pad_d0 = 0
-        pad_d1 = (window_size[0] - D % window_size[0]) % window_size[0]
-        pad_b = (window_size[1] - H % window_size[1]) % window_size[1]
-        pad_r = (window_size[2] - W % window_size[2]) % window_size[2]
-        x = F.pad(x, (0, 0, pad_l, pad_r, pad_t, pad_b, pad_d0, pad_d1))
-        _, Dp, Hp, Wp, _ = x.shape
+        # 原始的
+        if mae_unmask is None:
+            x = self.norm1(x)
 
-        # partition windows, 每个窗口中的数据
-        x_windows = window_partition(x, window_size)  # B*nW, Wd*Wh*Ww, C  # [512, 392, 96]
-        # W-MSA/SW-MSA
-        attn_windows = self.attn(x_windows)  # B*nW, Wd*Wh*Ww, C
-        # merge windows
-        attn_windows = attn_windows.view(-1, *(window_size+(C,)))
-        x = window_reverse(attn_windows, window_size, B, Dp, Hp, Wp)  # B D' H' W' C
+            # partition windows, 每个窗口中的数据
+            x_windows = window_partition(x, window_size)  # B*nW, Wd*Wh*Ww, C  # [512, 392, 96]
+            attn_windows = self.attn(x_windows)  # B*nW, Wd*Wh*Ww, C
 
-        if pad_d1 >0 or pad_r > 0 or pad_b > 0:
-            x = x[:, :D, :H, :W, :].contiguous()
-        return x
+            attn_windows = attn_windows.view(-1, *(window_size + (C,)))
+            x = window_reverse(attn_windows, window_size, B, D, H, W)  # B D' H' W' C
 
-    def forward_part2(self, x):
-        return self.drop_path(self.mlp(self.norm2(x)))
+            x = shortcut + self.drop_path(x)
+            x = x + self.drop_path(self.mlp(self.norm2(x)))
+        else:
+            ###############################################################################################################
+            # partition windows, 每个窗口中的数据
+            x_windows = window_partition(x, window_size)  # B*nW, Wd*Wh*Ww, C  # [512, 392, 96]
 
-    def forward(self, x):
-        """ (B, D, H, W, C)"""
-        shortcut = x
-        x = checkpoint.checkpoint(self.forward_part1, x) if self.use_checkpoint else self.forward_part1(x)
-        x = shortcut + self.drop_path(x)
-        x = x + (checkpoint.checkpoint(self.forward_part2, x) if self.use_checkpoint else self.forward_part2(x))
+            batch_range = torch.arange(B, device=device)[:, None]
+            unmask_x_windows = x_windows[batch_range, mae_unmask]
+            unmask_x_windows = self.norm1(unmask_x_windows)
+
+            # W-MSA/SW-MSA
+            unmask_attn_windows = self.attn(unmask_x_windows, mae_unmask=mae_unmask)  # B*nW, Wd*Wh*Ww, C
+
+            # res
+            unmask_shortcut = window_partition(shortcut, window_size)[batch_range, mae_unmask]
+            unmask_windows = self.drop_path(unmask_attn_windows) + unmask_shortcut
+            unmask_windows = unmask_windows + self.drop_path(self.mlp(self.norm2(unmask_windows)))
+
+            attn_windows = torch.zeros_like(x_windows)
+            attn_windows[batch_range, mae_unmask] = unmask_windows
+            attn_windows = attn_windows.view(-1, *(window_size + (C,)))
+            x = window_reverse(attn_windows, window_size, B, D, H, W)  # B D' H' W' C
+            ###############################################################################################################
+
         return x
 
     pass
@@ -304,12 +405,12 @@ class BasicLayer(nn.Module):
             pass
         pass
 
-    def forward(self, x):
+    def forward(self, x, mae_unmask=None):
         # calculate attention mask for SW-MSA
         B, C, D, H, W = x.shape
         x = rearrange(x, 'b c d h w -> b d h w c')
         for blk in self.blocks:
-            x = blk(x)
+            x = blk(x, mae_unmask=mae_unmask)
         x = x.view(B, D, H, W, -1)
 
         if self.downsample is not None:
@@ -363,6 +464,41 @@ class PatchEmbed3D(nn.Module):
         return x
 
 
+class Decoder(nn.Module):
+
+    def __init__(self, encoder_dim, decoder_dim, num_patches, decoder_depth,
+                 decoder_heads, decoder_dim_head, pixel_values_per_patch):
+        super().__init__()
+        self.enc_to_dec = nn.Linear(encoder_dim, decoder_dim) if encoder_dim != decoder_dim else nn.Identity()
+
+        self.mask_token = nn.Parameter(torch.randn(decoder_dim))
+        self.decoder_pos_emb = nn.Embedding(num_patches, decoder_dim)
+        self.decoder = Transformer(dim=decoder_dim, depth=decoder_depth, heads=decoder_heads,
+                                   dim_head=decoder_dim_head, mlp_dim=decoder_dim * 4)
+        self.to_pixels = nn.Linear(decoder_dim, pixel_values_per_patch)
+        pass
+
+    def forward(self, x, unmasked_indices, masked_indices, masked_patches):
+        B = x.size(0)
+        unmask_tokens = self.enc_to_dec(x)
+        unmask_tokens = unmask_tokens + self.decoder_pos_emb(unmasked_indices)  # 未掩掉的块
+
+        mask_tokens = repeat(self.mask_token, 'd -> b n d', b=B, n=masked_indices.size(1))
+        mask_tokens = mask_tokens + self.decoder_pos_emb(masked_indices)  # 所有掩掉的块
+        all_decoder_tokens = torch.cat([unmask_tokens, mask_tokens], 1)
+
+        decoded_tokens = self.decoder(all_decoder_tokens)
+        pred_pixel_values = self.to_pixels(decoded_tokens)
+        pred_masked_pixel_values = pred_pixel_values[:, -masked_indices.size(1):]
+        ############################################################################################################
+
+        # calculate reconstruction loss
+        # recon_loss = F.mse_loss(pred_masked_pixel_values, masked_patches)
+        return pred_masked_pixel_values, masked_patches
+
+    pass
+
+
 @BACKBONES.register_module()
 class SwinTransformer3DMy(nn.Module):
     """ Swin Transformer backbone.
@@ -388,10 +524,10 @@ class SwinTransformer3DMy(nn.Module):
             -1 means not freezing any parameters.
     """
 
-    def __init__(self,pretrained=None, pretrained2d=True, patch_size=(4,4,4), in_chans=3, embed_dim=96,
+    def __init__(self, pretrained=None, pretrained2d=False, patch_size=(4,4,4), in_chans=3, embed_dim=96,
                  depths=[2, 2, 6, 2], num_heads=[3, 6, 12, 24], window_size=(2,7,7), mlp_ratio=4., qkv_bias=True,
                  qk_scale=None, drop_rate=0., attn_drop_rate=0., drop_path_rate=0.2, norm_layer=nn.LayerNorm,
-                 patch_norm=False, frozen_stages=-1, use_checkpoint=False):
+                 patch_norm=False, frozen_stages=-1, use_checkpoint=False, mask_ratio=0.5, is_mae=False):
         super().__init__()
 
         self.pretrained = pretrained
@@ -402,6 +538,8 @@ class SwinTransformer3DMy(nn.Module):
         self.frozen_stages = frozen_stages
         self.window_size = window_size
         self.patch_size = patch_size
+        self.mask_ratio = mask_ratio
+        self.is_mae = is_mae
 
         # split image into non-overlapping patches
         self.patch_embed = PatchEmbed3D(patch_size=patch_size, in_chans=in_chans, embed_dim=embed_dim,
@@ -429,28 +567,83 @@ class SwinTransformer3DMy(nn.Module):
         # add a norm layer for each output
         self.norm = norm_layer(self.num_features)
 
+        # Decoder
+        if self.is_mae:
+            self.decoder = Decoder(encoder_dim=768, decoder_dim=256, num_patches=49*16, decoder_depth=6,
+                                   decoder_heads=4, decoder_dim_head=64, pixel_values_per_patch=6144)
+            pass
+
         self._freeze_stages()
         pass
 
     def forward(self, x):
+        device = x.device
+
+        unmask_time_x = x
+        if self.is_mae:
+            # 时间轴
+            x = rearrange(x, "b c t w h -> b t c w h")
+
+            batch_size, t = x.size(0), self.window_size[0] * self.patch_size[0]
+            t_mask = torch.rand(batch_size, 2, device=device).argsort(dim=-1)
+
+            unmask_time, mask_time = rearrange(torch.cat([t_mask.unsqueeze(-1) * t + one for one in range(t)], dim=2), "b c t -> c b t")
+            batch_range = torch.arange(batch_size, device=device)[:, None]
+            unmask_time_x, mask_time_x = x[batch_range, unmask_time], x[batch_range, mask_time]
+
+            unmask_time_x = rearrange(unmask_time_x, "b t c w h -> b c t w h")
+
+            # 空间轴
+            num_patch = (x.size()[-2] // 8 // self.patch_size[-2]) * (x.size()[-1] // 8 // self.patch_size[-1])
+            num_mask = int(num_patch * self.mask_ratio)
+            rand_indices = torch.rand(batch_size, num_patch, device=device).argsort(dim=-1)
+            unmask_space, mask_space = rand_indices[:, :num_mask], rand_indices[:, num_mask:]
+
+            mae_unmask = torch.cat([unmask_space + num_patch * i for i in range(t // 2)], dim=1)
+
+            # 全局mask和数据
+            all_patch_num = t * num_patch
+            global_unmask = [one + two[0] * all_patch_num // 2 for one, two in zip(mae_unmask, t_mask)]
+            global_unmask = torch.cat([one.unsqueeze(0) for one in global_unmask], dim=0)
+            global_mask = torch.tensor([[o for o in range(0, all_patch_num) if o not in one] for one in global_unmask], device=device)
+            all_patch_img = rearrange(x, "b (t p1) c (w p2) (h p3) -> b (w h t) (p1 p2 p3 c)",
+                                      p1=self.patch_size[0], p2=x.size(-2) // self.window_size[-2], p3=x.size(-1) // self.window_size[-1])
+            masked_patches = all_patch_img[batch_range, global_mask]
+            pass
+
         # [4, 3, 32, 224, 224] -> [4, 96, 16, 56, 56]
-        x = self.patch_embed(x)
+        x = self.patch_embed(unmask_time_x)
         x = self.pos_drop(x)
 
-        # [4,  96, 16, 56, 56] -> [4, 192, 16, 28, 28]
-        # [4, 192, 16, 28, 28] -> [4, 384, 16, 14, 14]
-        # [4, 384, 16, 14, 14] -> [4, 768, 16,  7,  7]
-        # [4, 768, 16,  7,  7] -> [4, 768, 16,  7,  7]
-        for layer in self.layers:
-            x = layer(x.contiguous())
+        # [4,  96, 16, 56, 56] -> [4, 192, 16, 28, 28] -> [4, 384, 16, 14, 14]
+        # [4, 384, 16, 14, 14] -> [4, 768, 16,  7,  7] -> [4, 768, 16,  7,  7]
+        for index, layer in enumerate(self.layers):
+            if self.is_mae and index == 3:
+                x = layer(x.contiguous(), mae_unmask=mae_unmask)
+            else:
+                x = layer(x.contiguous())
+                pass
+            pass
 
         # [4, 768, 16, 7, 7] -> [4, 16, 7, 7, 768]
         # [4, 16, 7, 7, 768] -> [4, 768, 16, 7, 7]
-        x = rearrange(x, 'n c d h w -> n d h w c')
-        x = self.norm(x)
-        x = rearrange(x, 'n d h w c -> n c d h w')
+        if not self.is_mae:
+            x = rearrange(x, 'n c d h w -> n d h w c')
+            x = self.norm(x)
+            x = rearrange(x, 'n d h w c -> n c d h w')
+            return x
+        else:
+            x = rearrange(x, 'n c d h w -> n d h w c')
 
-        return x
+            B, D, H, W, C = x.shape
+            window_size = get_window_size((D, H, W), self.window_size)
+            x = window_partition(x, window_size)
+            batch_range = torch.arange(B, device=device)[:, None]
+            x = x[batch_range, mae_unmask]
+
+            output = self.decoder(x, global_unmask, global_mask, masked_patches)
+            return output
+        pass
 
     def _freeze_stages(self):
         if self.frozen_stages >= 0:
@@ -465,6 +658,39 @@ class SwinTransformer3DMy(nn.Module):
                 m.eval()
                 for param in m.parameters():
                     param.requires_grad = False
+        pass
+
+    def init_weights(self, pretrained=None):
+
+        def _init_weights(m):
+            if isinstance(m, nn.Linear):
+                trunc_normal_(m.weight, std=.02)
+                if isinstance(m, nn.Linear) and m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.LayerNorm):
+                nn.init.constant_(m.bias, 0)
+                nn.init.constant_(m.weight, 1.0)
+
+        if pretrained:
+            self.pretrained = pretrained
+
+        if isinstance(self.pretrained, str):
+            self.apply(_init_weights)
+            logger = get_root_logger()
+            logger.info(f'load model from: {self.pretrained}')
+
+            if self.pretrained2d:
+                # Inflate 2D model into 3D model.
+                self.inflate_weights(logger)
+            else:
+                # Directly load 3D model.
+                load_checkpoint(self, self.pretrained, strict=False, logger=logger,
+                                map_location='cpu', revise_keys=[(r'^backbone\.', '')])
+                pass
+        elif self.pretrained is None:
+            self.apply(_init_weights)
+        else:
+            raise TypeError('pretrained must be a str or None')
         pass
 
     def inflate_weights(self, logger):
@@ -509,36 +735,6 @@ class SwinTransformer3DMy(nn.Module):
         logger.info(f"=> loaded successfully '{self.pretrained}'")
         del checkpoint
         torch.cuda.empty_cache()
-        pass
-
-    def init_weights(self, pretrained=None):
-
-        def _init_weights(m):
-            if isinstance(m, nn.Linear):
-                trunc_normal_(m.weight, std=.02)
-                if isinstance(m, nn.Linear) and m.bias is not None:
-                    nn.init.constant_(m.bias, 0)
-            elif isinstance(m, nn.LayerNorm):
-                nn.init.constant_(m.bias, 0)
-                nn.init.constant_(m.weight, 1.0)
-
-        if pretrained:
-            self.pretrained = pretrained
-        if isinstance(self.pretrained, str):
-            self.apply(_init_weights)
-            logger = get_root_logger()
-            logger.info(f'load model from: {self.pretrained}')
-
-            if self.pretrained2d:
-                # Inflate 2D model into 3D model.
-                self.inflate_weights(logger)
-            else:
-                # Directly load 3D model.
-                load_checkpoint(self, self.pretrained, strict=False, logger=logger)
-        elif self.pretrained is None:
-            self.apply(_init_weights)
-        else:
-            raise TypeError('pretrained must be a str or None')
         pass
 
     def train(self, mode=True):
