@@ -22,7 +22,8 @@ class Recognizer3DMAE(BaseRecognizer):
         raise Exception("no _do_test function")
 
     def forward_test(self, imgs):
-        raise Exception("no forward_test function")
+        a, b = self.extract_feat(imgs[0])
+        return a, b
 
     def forward_dummy(self, imgs, softmax=False):
         raise Exception("no forward_dummy function")

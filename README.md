@@ -72,6 +72,21 @@ python tools/test.py <CONFIG_FILE> <CHECKPOINT_FILE> --eval top_k_accuracy
 bash tools/dist_test.sh <CONFIG_FILE> <CHECKPOINT_FILE> <GPU_NUM> --eval top_k_accuracy
 ```
 
+
+### My
+
+```
+# single-gpu test
+PYTHONPATH=. CUDA_VISIBLE_DEVICES=1 python tools/test.py configs/recognition/c3d/c3d_sports1m_16x1x1_45e_ucf101_rgb.py checkpoints/c3d/c3d_sports1m_16x1x1_45e_ucf101_rgb_20201021-26655025.pth --eval top_k_accuracy mean_class_accuracy
+
+# single-gpu training
+PYTHONPATH=. CUDA_VISIBLE_DEVICES=1 python tools/train.py configs/recognition/swin/swin_tiny_patch244_window877_ucf101_none.py
+
+# multi-gpu training
+PYTHONPATH=. CUDA_VISIBLE_DEVICES=1,2,3 python -m torch.distributed.launch --nproc_per_node=3 --master_port=12431 tools/train.py configs/recognition/swin/swin_tiny_patch244_window877_ucf101_none.py --validate --launcher pytorch
+```
+
+
 ### Training
 
 To train a video recognition model with pre-trained image models (for Kinetics-400 and Kineticc-600 datasets), run:

@@ -579,47 +579,52 @@ class SwinTransformer3DMy(nn.Module):
     def forward(self, x):
         device = x.device
 
-        unmask_time_x = x
+        final_12_image = x
         if self.is_mae:
-            # 时间轴
-            x = rearrange(x, "b c t w h -> b t c w h")
+            # 1:用于训练的，2:被扣掉的，3:被整体扣掉的
+            x_b, x_c, x_t, x_w, x_h = x.size()
+            p1, p2, p3 = self.patch_size[0], x_w // self.window_size[-2], x_h // self.window_size[-1]
+            batch_range = torch.arange(x_b, device=device)[:, None]
 
-            batch_size, t = x.size(0), self.window_size[0] * self.patch_size[0]
-            t_mask = torch.rand(batch_size, 2, device=device).argsort(dim=-1)
+            all_patch_img = rearrange(x, "b c (t p1) (w p2) (h p3) -> b (w h t) (p1 p2 p3 c)", p1=p1, p2=p2, p3=p3)
+            all_patch_num = all_patch_img.size(1)  # 总共多少个块
+            image_num_patch = (x_w // p2) * (x_h // p3)  # 空间上多少个块
+            num_mask = int(image_num_patch * self.mask_ratio)  # mask多少个
 
-            unmask_time, mask_time = rearrange(torch.cat([t_mask.unsqueeze(-1) * t + one for one in range(t)], dim=2), "b c t -> c b t")
-            batch_range = torch.arange(batch_size, device=device)[:, None]
-            unmask_time_x, mask_time_x = x[batch_range, unmask_time], x[batch_range, mask_time]
+            t_mask = torch.rand(x_b, 2, device=device).argsort(dim=-1)  # Mask: 前半部分还是后半部分
+            unmask_time, final_3_global_id = rearrange(torch.cat([
+                t_mask.unsqueeze(-1) * all_patch_num // 2 + one for one in range(all_patch_num // 2)], dim=2), "b c t -> c b t")
+            final_3_data = all_patch_img[batch_range, final_3_global_id]
 
-            unmask_time_x = rearrange(unmask_time_x, "b t c w h -> b c t w h")
+            unmask_time_x = all_patch_img[batch_range, unmask_time]
+            final_12_image = rearrange(unmask_time_x, "b (w h t) (p1 p2 p3 c) -> b (t p1) c (w p2) (h p3)",
+                                       t=x_t // p1 // 2, w=x_w // p2, h=x_h // p3, c=x_c, p1=p1, p2=p2, p3=p3)
 
             # 空间轴
-            num_patch = (x.size()[-2] // 8 // self.patch_size[-2]) * (x.size()[-1] // 8 // self.patch_size[-1])
-            num_mask = int(num_patch * self.mask_ratio)
-            rand_indices = torch.rand(batch_size, num_patch, device=device).argsort(dim=-1)
-            unmask_space, mask_space = rand_indices[:, :num_mask], rand_indices[:, num_mask:]
+            rand_indices = torch.rand(x_b, image_num_patch, device=device).argsort(dim=-1)
+            final_1_local_id = torch.cat([rand_indices[:, num_mask:] + image_num_patch * one for one in range(x_t // p1 // 2)], dim=1)
+            final_2_local_id = torch.cat([rand_indices[:, :num_mask] + image_num_patch * one for one in range(x_t // p1 // 2)], dim=1)
+            final_1_global_id = torch.cat([one.unsqueeze(0) + one_mask[0] * all_patch_num // 2 for one, one_mask in zip(final_1_local_id, t_mask)])
+            final_2_global_id = torch.cat([one.unsqueeze(0) + one_mask[0] * all_patch_num // 2 for one, one_mask in zip(final_2_local_id, t_mask)])
+            final_1_data = unmask_time_x[batch_range, final_1_local_id]
+            final_2_data = unmask_time_x[batch_range, final_2_local_id]
+            # final_1_data = all_patch_img[batch_range, final_1_global_id]
+            # final_2_data = all_patch_img[batch_range, final_2_global_id]
 
-            mae_unmask = torch.cat([unmask_space + num_patch * i for i in range(t // 2)], dim=1)
-
-            # 全局mask和数据
-            all_patch_num = t * num_patch
-            global_unmask = [one + two[0] * all_patch_num // 2 for one, two in zip(mae_unmask, t_mask)]
-            global_unmask = torch.cat([one.unsqueeze(0) for one in global_unmask], dim=0)
-            global_mask = torch.tensor([[o for o in range(0, all_patch_num) if o not in one] for one in global_unmask], device=device)
-            all_patch_img = rearrange(x, "b (t p1) c (w p2) (h p3) -> b (w h t) (p1 p2 p3 c)",
-                                      p1=self.patch_size[0], p2=x.size(-2) // self.window_size[-2], p3=x.size(-1) // self.window_size[-1])
-            masked_patches = all_patch_img[batch_range, global_mask]
+            final_23_global_id = torch.cat([final_2_global_id, final_3_global_id], dim=1)
+            final_23_data = torch.cat([final_2_data, final_3_data], dim=1)
             pass
 
         # [4, 3, 32, 224, 224] -> [4, 96, 16, 56, 56]
-        x = self.patch_embed(unmask_time_x)
+        x_in = rearrange(final_12_image, "b t c w h -> b c t w h")
+        x = self.patch_embed(x_in)
         x = self.pos_drop(x)
 
         # [4,  96, 16, 56, 56] -> [4, 192, 16, 28, 28] -> [4, 384, 16, 14, 14]
         # [4, 384, 16, 14, 14] -> [4, 768, 16,  7,  7] -> [4, 768, 16,  7,  7]
         for index, layer in enumerate(self.layers):
             if self.is_mae and index == 3:
-                x = layer(x.contiguous(), mae_unmask=mae_unmask)
+                x = layer(x.contiguous(), mae_unmask=final_1_local_id)
             else:
                 x = layer(x.contiguous())
                 pass
@@ -639,9 +644,12 @@ class SwinTransformer3DMy(nn.Module):
             window_size = get_window_size((D, H, W), self.window_size)
             x = window_partition(x, window_size)
             batch_range = torch.arange(B, device=device)[:, None]
-            x = x[batch_range, mae_unmask]
+            x = x[batch_range, final_1_local_id]
 
-            output = self.decoder(x, global_unmask, global_mask, masked_patches)
+            output = self.decoder(x, final_1_global_id, final_23_global_id, final_23_data)
+            """
+           rearrange(all_patch_img, "b (w1 w2 t) (p1 p2 p3 c) -> b (t p1) c (w1 p2) (w2 p3)", w1=7, w2=7, t=16, p1=2, p2=32, p3=32, c=3)
+           """
             return output
         pass
 
