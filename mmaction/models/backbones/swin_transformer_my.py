@@ -595,10 +595,11 @@ class SwinTransformer3DMy(nn.Module):
             unmask_time, final_3_global_id = rearrange(torch.cat([
                 t_mask.unsqueeze(-1) * all_patch_num // 2 + one for one in range(all_patch_num // 2)], dim=2), "b c t -> c b t")
             final_3_data = all_patch_img[batch_range, final_3_global_id]
-
             unmask_time_x = all_patch_img[batch_range, unmask_time]
-            final_12_image = rearrange(unmask_time_x, "b (w h t) (p1 p2 p3 c) -> b (t p1) c (w p2) (h p3)",
-                                       t=x_t // p1 // 2, w=x_w // p2, h=x_h // p3, c=x_c, p1=p1, p2=p2, p3=p3)
+
+            unmask_time_from_x, _ = rearrange(torch.cat([
+                t_mask.unsqueeze(-1) * x_t // 2 + one for one in range(x_t // 2)], dim=2), "b c t -> c b t")
+            final_12_image = rearrange(x[batch_range, :, unmask_time_from_x], "b t c w h -> b c t w h")
 
             # 空间轴
             rand_indices = torch.rand(x_b, image_num_patch, device=device).argsort(dim=-1)
@@ -606,7 +607,7 @@ class SwinTransformer3DMy(nn.Module):
             final_2_local_id = torch.cat([rand_indices[:, :num_mask] + image_num_patch * one for one in range(x_t // p1 // 2)], dim=1)
             final_1_global_id = torch.cat([one.unsqueeze(0) + one_mask[0] * all_patch_num // 2 for one, one_mask in zip(final_1_local_id, t_mask)])
             final_2_global_id = torch.cat([one.unsqueeze(0) + one_mask[0] * all_patch_num // 2 for one, one_mask in zip(final_2_local_id, t_mask)])
-            final_1_data = unmask_time_x[batch_range, final_1_local_id]
+            # final_1_data = unmask_time_x[batch_range, final_1_local_id]
             final_2_data = unmask_time_x[batch_range, final_2_local_id]
             # final_1_data = all_patch_img[batch_range, final_1_global_id]
             # final_2_data = all_patch_img[batch_range, final_2_global_id]
@@ -616,8 +617,7 @@ class SwinTransformer3DMy(nn.Module):
             pass
 
         # [4, 3, 32, 224, 224] -> [4, 96, 16, 56, 56]
-        x_in = rearrange(final_12_image, "b t c w h -> b c t w h")
-        x = self.patch_embed(x_in)
+        x = self.patch_embed(final_12_image)
         x = self.pos_drop(x)
 
         # [4,  96, 16, 56, 56] -> [4, 192, 16, 28, 28] -> [4, 384, 16, 14, 14]
