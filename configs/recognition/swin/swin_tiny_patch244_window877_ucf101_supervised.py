@@ -3,7 +3,10 @@ _base_ = [
 ]
 # pretrained = None
 # pretrained = "/media/ubuntu/4T/ALISURE/MVAE/work_dirs/swin_tiny_patch244_window877_ucf101_mae.py/epoch_100.pth"
-pretrained = "/media/ubuntu/4T/ALISURE/MVAE/work_dirs/swin_tiny_patch244_window877_ucf101_mae_new_300.py/epoch_300.pth"
+# pretrained = "/media/ubuntu/4T/ALISURE/MVAE/work_dirs/swin_tiny_patch244_window877_ucf101_mae_new_300.py/epoch_300.pth"
+# pretrained = "/media/ubuntu/4T/ALISURE/MVAE/work_dirs/1_swin_tiny_patch244_window877_ucf101_mae_new_300.py/epoch_300.pth"
+# pretrained = "/media/ubuntu/4T/ALISURE/MVAE/work_dirs/2_swin_tiny_patch244_window877_ucf101_mae_new_300.py/epoch_300.pth"
+pretrained = "/media/ubuntu/4T/ALISURE/MVAE/work_dirs/3_swin_tiny_patch244_window877_ucf101_mae_new_1000.py/epoch_1000.pth"
 model=dict(backbone=dict(patch_size=(2,4,4), drop_path_rate=0.1, pretrained=pretrained),
            cls_head=dict(num_classes=101), test_cfg=dict(max_testing_views=4))
 
@@ -114,7 +117,7 @@ log_config = dict(
 
 # runtime settings
 checkpoint_config = dict(interval=50)
-work_dir = './work_dirs/swin_tiny_patch244_window877_ucf101_shift0{}.py'.format(
+work_dir = './work_dirs/3_swin_tiny_patch244_window877_ucf101_shift0{}.py'.format(
     "" if pretrained is None else "_pretrained")
 find_unused_parameters = False
 
@@ -133,11 +136,24 @@ optimizer_config = dict(
 
 """
 PYTHONPATH=. CUDA_VISIBLE_DEVICES=0,1,2,3 python -m torch.distributed.launch --nproc_per_node=4 --master_port=12431 tools/train.py configs/recognition/swin/swin_tiny_patch244_window877_ucf101_supervised.py --validate --launcher pytorch
+
+None 1e-3
 Epoch(val) [100][945]	top1_acc: 0.4911, top5_acc: 0.7388, mean_class_accuracy: 0.4921
 
-/media/ubuntu/4T/ALISURE/MVAE/work_dirs/swin_tiny_patch244_window877_ucf101_mae.py/epoch_100.pth
+/media/ubuntu/4T/ALISURE/MVAE/work_dirs/swin_tiny_patch244_window877_ucf101_mae.py/epoch_100.pth 1e-3
 Epoch(val) [95][945]	top1_acc: 0.5221, top5_acc: 0.7801, mean_class_accuracy: 0.5230
 
-/media/ubuntu/4T/ALISURE/MVAE/work_dirs/swin_tiny_patch244_window877_ucf101_mae_new_300.py/epoch_300.pth
+/media/ubuntu/4T/ALISURE/MVAE/work_dirs/swin_tiny_patch244_window877_ucf101_mae_new_300.py/epoch_300.pth 1e-3
 Epoch(val) [90][945]	top1_acc: 0.5491, top5_acc: 0.8126, mean_class_accuracy: 0.5472
+
+/media/ubuntu/4T/ALISURE/MVAE/work_dirs/1_swin_tiny_patch244_window877_ucf101_mae_new_300.py/epoch_300.pth 1e-3
+Epoch(val) [75][945]	top1_acc: 0.5755, top5_acc: 0.8095, mean_class_accuracy: 0.5749
+Epoch(val) [100][945]	top1_acc: 0.5658, top5_acc: 0.8148, mean_class_accuracy: 0.5655
+
+/media/ubuntu/4T/ALISURE/MVAE/work_dirs/2_swin_tiny_patch244_window877_ucf101_mae_new_300.py/epoch_300.pth 1e-4
+Epoch(val) [90][945]	top1_acc: 0.5504, top5_acc: 0.8010, mean_class_accuracy: 0.5507
+
+/media/ubuntu/4T/ALISURE/MVAE/work_dirs/3_swin_tiny_patch244_window877_ucf101_mae_new_1000.py/epoch_1000.pth 1e-3
+Epoch(val) [100][945]	top1_acc: 0.5893, top5_acc: 0.8232, mean_class_accuracy: 0.5872
+10 crop test: top1_acc: 0.6086, top5_acc: 0.8373, mean_class_accuracy: 0.6068
 """

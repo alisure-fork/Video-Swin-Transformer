@@ -611,7 +611,6 @@ class SwinTransformer3DMy(nn.Module):
             final_2_data = unmask_time_x[batch_range, final_2_local_id]
             # final_1_data = all_patch_img[batch_range, final_1_global_id]
             # final_2_data = all_patch_img[batch_range, final_2_global_id]
-
             final_23_global_id = torch.cat([final_2_global_id, final_3_global_id], dim=1)
             final_23_data = torch.cat([final_2_data, final_3_data], dim=1)
             pass
@@ -647,9 +646,6 @@ class SwinTransformer3DMy(nn.Module):
             x = x[batch_range, final_1_local_id]
 
             output = self.decoder(x, final_1_global_id, final_23_global_id, final_23_data)
-            """
-           rearrange(all_patch_img, "b (w1 w2 t) (p1 p2 p3 c) -> b (t p1) c (w1 p2) (w2 p3)", w1=7, w2=7, t=16, p1=2, p2=32, p3=32, c=3)
-           """
             return output
         pass
 

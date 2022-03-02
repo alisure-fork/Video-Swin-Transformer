@@ -76,9 +76,13 @@ optimizer = dict(
     type='SGD', lr=0.001, momentum=0.9,
     weight_decay=0.0005)  # this lr is used for 8 gpus
 optimizer_config = dict(grad_clip=dict(max_norm=40, norm_type=2))
+
 # learning policy
-lr_config = dict(policy='step', step=[20, 40])
-total_epochs = 45
+# lr_config = dict(policy='step', step=[20, 40])
+# total_epochs = 45
+lr_config = dict(policy='step', step=[200, 280])
+total_epochs = 300
+
 checkpoint_config = dict(interval=5)
 evaluation = dict(
     interval=5, metrics=['top_k_accuracy', 'mean_class_accuracy'])
@@ -95,3 +99,9 @@ work_dir = f'./work_dirs/c3d_sports1m_16x1x1_45e_ucf101_split_{split}_rgb/'
 load_from = None
 resume_from = None
 workflow = [('train', 1)]
+
+
+"""
+Epoch(val) [30][32]	top1_acc: 0.7957, top5_acc: 0.9468, mean_class_accuracy: 0.7958  # Ha Pretrain, 0.001
+Epoch(val) [300][32]	top1_acc: 0.3575, top5_acc: 0.5970, mean_class_accuracy: 0.3609  # No Pretrain, 0.001
+"""

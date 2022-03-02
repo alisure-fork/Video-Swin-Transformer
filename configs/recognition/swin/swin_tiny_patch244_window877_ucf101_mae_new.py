@@ -98,7 +98,7 @@ lr_config = dict(
     warmup_by_epoch=True,
     warmup_iters=2.5
 )
-total_epochs = 300
+total_epochs = 1000
 
 log_config = dict(
     interval=100,
@@ -108,8 +108,8 @@ log_config = dict(
     ])
 
 # runtime settings
-checkpoint_config = dict(interval=10)
-work_dir = './work_dirs/1_swin_tiny_patch244_window877_ucf101_mae_new_{}.py'.format(total_epochs)
+checkpoint_config = dict(interval=100)
+work_dir = './work_dirs/3_swin_tiny_patch244_window877_ucf101_mae_new_{}.py'.format(total_epochs)
 find_unused_parameters = True
 
 
@@ -127,6 +127,25 @@ optimizer_config = dict(
 
 """
 PYTHONPATH=. CUDA_VISIBLE_DEVICES=0,1,2,3 python -m torch.distributed.launch --nproc_per_node=4 --master_port=12431 tools/train.py configs/recognition/swin/swin_tiny_patch244_window877_ucf101_mae_new.py --launcher pytorch
+2021-12-17 01:14:25,361 - mmaction - INFO - Epoch [300][100/594]	lr: 2.742e-09, eta: 0:03:27, time: 0.712, data_time: 0.272, memory: 9054, loss: 913.6226
+2021-12-17 01:15:09,037 - mmaction - INFO - Epoch [300][200/594]	lr: 2.742e-09, eta: 0:02:45, time: 0.437, data_time: 0.000, memory: 9054, loss: 930.2529
+2021-12-17 01:15:52,710 - mmaction - INFO - Epoch [300][300/594]	lr: 2.742e-09, eta: 0:02:03, time: 0.437, data_time: 0.000, memory: 9054, loss: 930.1911
+2021-12-17 01:16:36,200 - mmaction - INFO - Epoch [300][400/594]	lr: 2.742e-09, eta: 0:01:21, time: 0.435, data_time: 0.000, memory: 9054, loss: 914.3142
+2021-12-17 01:17:20,055 - mmaction - INFO - Epoch [300][500/594]	lr: 2.742e-09, eta: 0:00:39, time: 0.439, data_time: 0.000, memory: 9054, loss: 935.7731
+
+/media/ubuntu/4T/ALISURE/MVAE/work_dirs/2_swin_tiny_patch244_window877_ucf101_mae_new_300.py/epoch_300.pth
+2021-12-18 22:43:01,096 - mmaction - INFO - Epoch [300][100/594]	lr: 2.742e-09, eta: 0:03:24, time: 0.706, data_time: 0.268, memory: 9054, loss: 974.4400
+2021-12-18 22:43:45,185 - mmaction - INFO - Epoch [300][200/594]	lr: 2.742e-09, eta: 0:02:43, time: 0.441, data_time: 0.000, memory: 9054, loss: 985.2260
+2021-12-18 22:44:29,546 - mmaction - INFO - Epoch [300][300/594]	lr: 2.742e-09, eta: 0:02:01, time: 0.443, data_time: 0.000, memory: 9054, loss: 961.8657
+2021-12-18 22:45:13,302 - mmaction - INFO - Epoch [300][400/594]	lr: 2.742e-09, eta: 0:01:20, time: 0.438, data_time: 0.000, memory: 9054, loss: 963.2430
+2021-12-18 22:45:57,171 - mmaction - INFO - Epoch [300][500/594]	lr: 2.742e-09, eta: 0:00:38, time: 0.439, data_time: 0.000, memory: 9054, loss: 966.9057
+
+/media/ubuntu/4T/ALISURE/MVAE/work_dirs/3_swin_tiny_patch244_window877_ucf101_mae_new_1000.py/epoch_1000.pth
+2021-12-22 21:26:37,890 - mmaction - INFO - Epoch [1000][100/594]	lr: 2.467e-10, eta: 0:03:27, time: 0.704, data_time: 0.274, memory: 9061, loss: 675.9637
+2021-12-22 21:27:20,539 - mmaction - INFO - Epoch [1000][200/594]	lr: 2.467e-10, eta: 0:02:45, time: 0.427, data_time: 0.000, memory: 9061, loss: 684.0396
+2021-12-22 21:28:03,884 - mmaction - INFO - Epoch [1000][300/594]	lr: 2.467e-10, eta: 0:02:03, time: 0.433, data_time: 0.000, memory: 9061, loss: 674.9640
+2021-12-22 21:28:47,134 - mmaction - INFO - Epoch [1000][400/594]	lr: 2.467e-10, eta: 0:01:21, time: 0.432, data_time: 0.000, memory: 9061, loss: 657.3614
+2021-12-22 21:29:30,280 - mmaction - INFO - Epoch [1000][500/594]	lr: 2.467e-10, eta: 0:00:39, time: 0.432, data_time: 0.001, memory: 9061, loss: 678.4360
 """
 
 
