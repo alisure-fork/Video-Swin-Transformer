@@ -14,9 +14,10 @@ from .tsm_head import TSMHead
 from .tsn_head import TSNHead
 from .x3d_head import X3DHead
 from .mae_head import MAEHead
+from .joint_head import JointHead
 
 __all__ = [
     'TSNHead', 'I3DHead', 'BaseHead', 'TSMHead', 'SlowFastHead', 'SSNHead',
     'TPNHead', 'AudioTSNHead', 'X3DHead', 'BBoxHeadAVA', 'AVARoIHead',
-    'FBOHead', 'LFBInferHead', 'TRNHead', 'ACRNHead', "MAEHead"
+    'FBOHead', 'LFBInferHead', 'TRNHead', 'ACRNHead', "MAEHead", "JointHead"
 ]

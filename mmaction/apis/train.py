@@ -54,7 +54,8 @@ def train_model(model,
         workers_per_gpu=cfg.data.get('workers_per_gpu', 1),
         num_gpus=len(cfg.gpu_ids),
         dist=distributed,
-        seed=cfg.seed)
+        seed=cfg.seed,
+        drop_last=True)
     dataloader_setting = dict(dataloader_setting,
                               **cfg.data.get('train_dataloader', {}))
 

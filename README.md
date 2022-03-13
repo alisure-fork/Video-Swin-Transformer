@@ -76,6 +76,11 @@ bash tools/dist_test.sh <CONFIG_FILE> <CHECKPOINT_FILE> <GPU_NUM> --eval top_k_a
 ### My
 
 ```
+apex: https://blog.csdn.net/weixin_44966641/article/details/118767856
+
+```
+
+```
 # single-gpu test
 PYTHONPATH=. CUDA_VISIBLE_DEVICES=1 python tools/test.py configs/recognition/c3d/c3d_sports1m_16x1x1_45e_ucf101_rgb.py checkpoints/c3d/c3d_sports1m_16x1x1_45e_ucf101_rgb_20201021-26655025.pth --eval top_k_accuracy mean_class_accuracy
 

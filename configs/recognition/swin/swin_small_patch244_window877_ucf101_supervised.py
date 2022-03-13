@@ -1,15 +1,7 @@
 _base_ = [
-    '../../_base_/models/swin/swin_tiny_my_MM_supervised.py', '../../_base_/default_runtime.py'
+    '../../_base_/models/swin/swin_small_my_MM_supervised.py', '../../_base_/default_runtime.py'
 ]
-# pretrained = None
-# pretrained = "/media/ubuntu/4T/ALISURE/MVAE/work_dirs/swin_tiny_patch244_window877_ucf101_mae.py/epoch_100.pth"
-# pretrained = "/media/ubuntu/4T/ALISURE/MVAE/work_dirs/swin_tiny_patch244_window877_ucf101_mae_new_300.py/epoch_300.pth"
-# pretrained = "/media/ubuntu/4T/ALISURE/MVAE/work_dirs/1_swin_tiny_patch244_window877_ucf101_mae_new_300.py/epoch_300.pth"
-# pretrained = "/media/ubuntu/4T/ALISURE/MVAE/work_dirs/2_swin_tiny_patch244_window877_ucf101_mae_new_300.py/epoch_300.pth"
-# pretrained = "/media/ubuntu/4T/ALISURE/MVAE/work_dirs/3_swin_tiny_patch244_window877_ucf101_mae_new_1000.py/epoch_1000.pth"
-# pretrained = "/media/ubuntu/data1/ALISURE/Unsupervised/VideoSwinT/work_dirs/2_swin_tiny_patch244_window877_ucf101_MM_Joint_300.py/epoch_300.pth"
-# pretrained = " /media/ubuntu/4T/ALISURE/MVAE/work_dirs/Joint_swin_tiny_patch244_window877_ucf101_300.py/epoch_200.pth"
-pretrained = "/media/ubuntu/4T/ALISURE/MVAE/work_dirs/Joint_other_machine_swin_tiny_patch244_window877_ucf101_300_0.67.py/epoch_300.pth"
+pretrained = None
 model=dict(backbone=dict(patch_size=(2,4,4), drop_path_rate=0.1, pretrained=pretrained),
            cls_head=dict(num_classes=101), test_cfg=dict(max_testing_views=4))
 
@@ -96,7 +88,7 @@ evaluation = dict(
     interval=5, metrics=['top_k_accuracy', 'mean_class_accuracy'])
 
 # optimizer
-optimizer = dict(type='AdamW', lr=1e-3, betas=(0.9, 0.999), weight_decay=0.0005,
+optimizer = dict(type='AdamW', lr=1e-3, betas=(0.9, 0.999), weight_decay=0.02,
                  paramwise_cfg=dict(custom_keys={'absolute_pos_embed': dict(decay_mult=0.),
                                                  'relative_position_bias_table': dict(decay_mult=0.),
                                                  'norm': dict(decay_mult=0.),
@@ -120,7 +112,7 @@ log_config = dict(
 
 # runtime settings
 checkpoint_config = dict(interval=50)
-work_dir = './work_dirs/Joint_other_machine_swin_tiny_patch244_window877_ucf101_300_0.67_{}.py'.format(
+work_dir = './work_dirs/Joint_swin_small_patch244_window877_ucf101_{}.py'.format(
     "" if pretrained is None else "_pretrained")
 find_unused_parameters = False
 
@@ -129,7 +121,7 @@ find_unused_parameters = False
 fp16 = None
 optimizer_config = dict(
     type="DistOptimizerHook",
-    update_interval=4,
+    update_interval=8,
     grad_clip=None,
     coalesce=True,
     bucket_size_mb=-1,
@@ -138,38 +130,10 @@ optimizer_config = dict(
 
 
 """
-PYTHONPATH=. CUDA_VISIBLE_DEVICES=0,1,2,3 python -m torch.distributed.launch --nproc_per_node=4 --master_port=12431 tools/train.py configs/recognition/swin/swin_tiny_patch244_window877_ucf101_supervised.py --validate --launcher pytorch
+PYTHONPATH=. CUDA_VISIBLE_DEVICES=0,1,2,3 python -m torch.distributed.launch --nproc_per_node=4 --master_port=12431 tools/train.py configs/recognition/swin/swin_small_patch244_window877_ucf101_supervised.py --validate --launcher pytorch
 
-None 1e-3
-Epoch(val) [100][945]	top1_acc: 0.4911, top5_acc: 0.7388, mean_class_accuracy: 0.4921
+Epoch(val) [95][945]	top1_acc: 0.4864, top5_acc: 0.7441, mean_class_accuracy: 0.4861
 
-/media/ubuntu/4T/ALISURE/MVAE/work_dirs/swin_tiny_patch244_window877_ucf101_mae.py/epoch_100.pth 1e-3
-Epoch(val) [95][945]	top1_acc: 0.5221, top5_acc: 0.7801, mean_class_accuracy: 0.5230
-
-/media/ubuntu/4T/ALISURE/MVAE/work_dirs/swin_tiny_patch244_window877_ucf101_mae_new_300.py/epoch_300.pth 1e-3
-Epoch(val) [90][945]	top1_acc: 0.5491, top5_acc: 0.8126, mean_class_accuracy: 0.5472
-
-/media/ubuntu/4T/ALISURE/MVAE/work_dirs/1_swin_tiny_patch244_window877_ucf101_mae_new_300.py/epoch_300.pth 1e-3
-Epoch(val) [75][945]	top1_acc: 0.5755, top5_acc: 0.8095, mean_class_accuracy: 0.5749
-Epoch(val) [100][945]	top1_acc: 0.5658, top5_acc: 0.8148, mean_class_accuracy: 0.5655
-
-/media/ubuntu/4T/ALISURE/MVAE/work_dirs/2_swin_tiny_patch244_window877_ucf101_mae_new_300.py/epoch_300.pth 1e-4
-Epoch(val) [90][945]	top1_acc: 0.5504, top5_acc: 0.8010, mean_class_accuracy: 0.5507
-
-/media/ubuntu/4T/ALISURE/MVAE/work_dirs/3_swin_tiny_patch244_window877_ucf101_mae_new_1000.py/epoch_1000.pth 1e-3
-Epoch(val) [100][945]	top1_acc: 0.5893, top5_acc: 0.8232, mean_class_accuracy: 0.5872
-10 crop test: top1_acc: 0.6086, top5_acc: 0.8373, mean_class_accuracy: 0.6068
-
-/media/ubuntu/data1/ALISURE/Unsupervised/VideoSwinT/work_dirs/2_swin_tiny_patch244_window877_ucf101_MM_Joint_300.py/epoch_300.pth 1e-3
-Epoch(val) [70][945]	top1_acc: 0.5941, top5_acc: 0.8224, mean_class_accuracy: 0.5938
-Epoch(val) [100][945]	top1_acc: 0.5896, top5_acc: 0.8261, mean_class_accuracy: 0.5883
-
-/media/ubuntu/4T/ALISURE/MVAE/work_dirs/Joint_swin_tiny_patch244_window877_ucf101_300.py/epoch_200.pth
-Epoch(val) [95][945]	top1_acc: 0.5980, top5_acc: 0.8320, mean_class_accuracy: 0.5980
-Epoch(val) [100][945]	top1_acc: 0.5965, top5_acc: 0.8336, mean_class_accuracy: 0.5961
-
-
-
-PYTHONPATH=. CUDA_VISIBLE_DEVICES=0,1,2,3 nohup python -m torch.distributed.launch --nproc_per_node=4 --master_port=12431 tools/train.py configs/recognition/swin/swin_tiny_patch244_window877_ucf101_supervised.py --validate --launcher pytorch > ./work_dirs/2_supervised_2.log 2>&1 &
+PYTHONPATH=. CUDA_VISIBLE_DEVICES=0,1,2,3 nohup python -m torch.distributed.launch --nproc_per_node=4 --master_port=12431 tools/train.py configs/recognition/swin/swin_small_patch244_window877_ucf101_supervised.py --validate --launcher pytorch > ./work_dirs/2_supervised_2.log 2>&1 &
 
 """

@@ -9,20 +9,20 @@ from .builder import (BACKBONES, DETECTORS, HEADS, LOCALIZERS, LOSSES, NECKS,
 from .common import LFB, TAM, Conv2plus1d, ConvAudio
 from .heads import (ACRNHead, AudioTSNHead, AVARoIHead, BaseHead, BBoxHeadAVA,
                     FBOHead, I3DHead, LFBInferHead, SlowFastHead, TPNHead,
-                    TRNHead, TSMHead, TSNHead, X3DHead)
+                    TRNHead, TSMHead, TSNHead, X3DHead, JointHead)
 from .localizers import BMN, PEM, TEM
 from .losses import (BCELossWithLogits, BinaryLogisticRegressionLoss, BMNLoss,
                      CrossEntropyLoss, HVULoss, NLLLoss, OHEMHingeLoss,
                      SSNLoss)
 from .necks import TPN
 from .recognizers import (AudioRecognizer, BaseRecognizer, Recognizer2D,
-                          Recognizer3D, Recognizer3DMAE)
+                          Recognizer3D, Recognizer3DMAE, Recognizer3DJoint)
 from .roi_extractors import SingleRoIExtractor3D
 
 __all__ = [
-    'BACKBONES', 'HEADS', 'RECOGNIZERS', 'build_recognizer', 'build_head',
-    'build_backbone', 'Recognizer2D', 'Recognizer3D', 'Recognizer3DMAE', 'C3D', 'ResNet',
-    'ResNet3d', 'ResNet2Plus1d', 'I3DHead', 'TSNHead', 'TSMHead', 'BaseHead',
+    'BACKBONES', 'HEADS', 'RECOGNIZERS', 'build_recognizer', 'build_head', 'build_backbone',
+    'Recognizer2D', 'Recognizer3D', 'Recognizer3DMAE', 'Recognizer3DJoint', 'C3D', 'ResNet',
+    'ResNet3d', 'ResNet2Plus1d', 'I3DHead', 'TSNHead', 'TSMHead', 'BaseHead', 'JointHead',
     'BaseRecognizer', 'LOSSES', 'CrossEntropyLoss', 'NLLLoss', 'HVULoss',
     'ResNetTSM', 'ResNet3dSlowFast', 'SlowFastHead', 'Conv2plus1d',
     'ResNet3dSlowOnly', 'BCELossWithLogits', 'LOCALIZERS', 'build_localizer',
