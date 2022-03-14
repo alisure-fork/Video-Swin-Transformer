@@ -1,7 +1,9 @@
 _base_ = [
     '../../_base_/models/swin/swin_tiny_my_MM_Joint.py', '../../_base_/default_runtime.py'
 ]
-model=dict(backbone=dict(patch_size=(2,4,4), drop_path_rate=0.1, generative=True, discriminative=True),
+model=dict(backbone=dict(patch_size=(2,4,4), drop_path_rate=0.1, generative=True, discriminative=True,
+                         # pretrained='../'
+                         ),
            cls_head=dict(num_classes=101), test_cfg=dict(max_testing_views=4))
 
 # dataset settings
@@ -127,7 +129,7 @@ optimizer_config = dict(
 
 
 """
-PYTHONPATH=. CUDA_VISIBLE_DEVICES=0,1,2,3 python -m torch.distributed.launch --nproc_per_node=4 --master_port=12431 tools/train.py configs/recognition/swin/swin_tiny_patch244_window877_ucf101_MM_Joint.py --launcher pytorch
+PYTHONPATH=. CUDA_VISIBLE_DEVICES=0,1,2,3 python -m torch.distributed.launch --nproc_per_node=4 --master_port=12431 tools/train.py configs/recognition/swin/swin_tiny_patch244_window877_ucf101_MM_Joint.py --launcher pytorch --cfg-options model.backbone.pretrained=./checkpoints/swin/swin_tiny_patch4_224.pth
 
 PYTHONPATH=. CUDA_VISIBLE_DEVICES=0,1,2,3 nohup python -m torch.distributed.launch --nproc_per_node=4 --master_port=12431 tools/train.py configs/recognition/swin/swin_tiny_patch244_window877_ucf101_MM_Joint.py --launcher pytorch > ./work_dirs/3.log 2>&1 &
 
